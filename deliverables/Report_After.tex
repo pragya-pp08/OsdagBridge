@@ -2,7 +2,7 @@
 \documentclass[12pt,a4paper]{report}
 
 % Packages & Geometries from Centralized styles.py
-\usepackage[a4paper,left=20mm,right=20mm,top=25mm,bottom=28mm,headheight=16pt,headsep=15pt,footskip=18pt,includehead,includefoot,]{geometry}
+\usepackage[a4paper,left=20mm,right=20mm,top=25mm,bottom=28mm,headheight=24pt,headsep=14pt,footskip=18pt,includehead,includefoot,]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -62,8 +62,8 @@
 % Header and Footer Styling with Calibrated Margins
 \fancypagestyle{main}{
   \fancyhf{}
-  \fancyhead[L]{\small\textbf{Four-Lane Highway Bridge over River Crossing (NH-48)} $|$ OB-NH48-30M-REV1}
-  \fancyhead[R]{\small 2026-11-20 $|$ Detailed Engineering Calculation \& Design Verification Report}
+  \fancyhead[L]{\parbox[b]{0.62\headwidth}{\raggedright\footnotesize\textbf{Four-Lane Highway Bridge over River Crossing (NH-48)}\\[1pt]\scriptsize OB-NH48-30M-REV1}}
+  \fancyhead[R]{\parbox[b]{0.36\headwidth}{\raggedleft\footnotesize 2026-11-20\\[1pt]\scriptsize Detailed Engineering Calculation \& Design Verification Report}}
   \fancyfoot[L]{\footnotesize Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
   \fancyfoot[R]{\footnotesize Page \thepage\ of \pageref{LastPage}}
   \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}
@@ -79,8 +79,8 @@
 }
 \fancypagestyle{plain}{
   \fancyhf{}
-  \fancyhead[L]{\small\textbf{Four-Lane Highway Bridge over River Crossing (NH-48)} $|$ OB-NH48-30M-REV1}
-  \fancyhead[R]{\small 2026-11-20 $|$ Detailed Engineering Calculation \& Design Verification Report}
+  \fancyhead[L]{\parbox[b]{0.62\headwidth}{\raggedright\footnotesize\textbf{Four-Lane Highway Bridge over River Crossing (NH-48)}\\[1pt]\scriptsize OB-NH48-30M-REV1}}
+  \fancyhead[R]{\parbox[b]{0.36\headwidth}{\raggedleft\footnotesize 2026-11-20\\[1pt]\scriptsize Detailed Engineering Calculation \& Design Verification Report}}
   \fancyfoot[L]{\footnotesize Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
   \fancyfoot[R]{\footnotesize Page \thepage\ of \pageref{LastPage}}
   \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}

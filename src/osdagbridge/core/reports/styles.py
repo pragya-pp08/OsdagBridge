@@ -35,8 +35,8 @@ class GeometryConfig:
     RIGHT_MARGIN_MM: int = 20
     TOP_MARGIN_MM: int = 25
     BOTTOM_MARGIN_MM: int = 28
-    HEAD_HEIGHT_PT: int = 16
-    HEAD_SEP_PT: int = 15
+    HEAD_HEIGHT_PT: int = 24
+    HEAD_SEP_PT: int = 14
     FOOT_SKIP_PT: int = 18
     INCLUDE_HEAD: bool = True
     INCLUDE_FOOT: bool = True
@@ -166,8 +166,8 @@ def build_page_styles(project_name: str, job_number: str, report_date: str, repo
     return f"""% Header and Footer Styling with Calibrated Margins
 \\fancypagestyle{{main}}{{
   \\fancyhf{{}}
-  \\fancyhead[L]{{\\small\\textbf{{{project_name}}} $|$ {job_number}}}
-  \\fancyhead[R]{{\\small {report_date} $|$ {report_version}}}
+  \\fancyhead[L]{{\\parbox[b]{{0.62\\headwidth}}{{\\raggedright\\footnotesize\\textbf{{{project_name}}}\\\\[1pt]\\scriptsize {job_number}}}}}
+  \\fancyhead[R]{{\\parbox[b]{{0.36\\headwidth}}{{\\raggedleft\\footnotesize {report_date}\\\\[1pt]\\scriptsize {report_version}}}}}
   \\fancyfoot[L]{{\\footnotesize Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}}
   \\fancyfoot[R]{{\\footnotesize Page \\thepage\\ of \\pageref{{LastPage}}}}
   \\renewcommand{{\\headrule}}{{\\color{{osdagGreen}}\\hrule width\\headwidth height 1pt \\vspace{{2pt}}}}
@@ -183,8 +183,8 @@ def build_page_styles(project_name: str, job_number: str, report_date: str, repo
 }}
 \\fancypagestyle{{plain}}{{
   \\fancyhf{{}}
-  \\fancyhead[L]{{\\small\\textbf{{{project_name}}} $|$ {job_number}}}
-  \\fancyhead[R]{{\\small {report_date} $|$ {report_version}}}
+  \\fancyhead[L]{{\\parbox[b]{{0.62\\headwidth}}{{\\raggedright\\footnotesize\\textbf{{{project_name}}}\\\\[1pt]\\scriptsize {job_number}}}}}
+  \\fancyhead[R]{{\\parbox[b]{{0.36\\headwidth}}{{\\raggedleft\\footnotesize {report_date}\\\\[1pt]\\scriptsize {report_version}}}}}
   \\fancyfoot[L]{{\\footnotesize Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}}
   \\fancyfoot[R]{{\\footnotesize Page \\thepage\\ of \\pageref{{LastPage}}}}
   \\renewcommand{{\\headrule}}{{\\color{{osdagGreen}}\\hrule width\\headwidth height 1pt \\vspace{{2pt}}}}
