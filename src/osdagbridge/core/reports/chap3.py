@@ -7,6 +7,7 @@
 
 from osdagbridge.core.utils.common import (
     KEY_CB_LOAD,
+    KEY_FOOTPATH,
     KEY_LL_CUSTOM_VEHICLES,
     KEY_LL_FOOTPATH_PRESSURE_MODE,
     KEY_LL_FOOTPATH_PRESSURE_VALUE,
@@ -22,6 +23,7 @@ from osdagbridge.core.utils.common import (
     KEY_MATERIAL_GIRDER_DENSITY,
     KEY_PL_SELF_WEIGHT_FACTOR,
     KEY_RL_LOAD_VALUE,
+    KEY_SAFETY_KERB_PRESENT,
     KEY_SL_DAMPING,
     KEY_SL_DEAD_LOAD_MODE,
     KEY_SL_DEAD_LOAD_VALUE,
@@ -36,6 +38,7 @@ from osdagbridge.core.utils.common import (
     KEY_SL_VERTICAL_COEFF,
     KEY_SL_ZONE_FACTOR,
     KEY_SPAN,
+    KEY_TS_NO_OF_FOOTPATHS,
     KEY_TL_BRIDGE_TEMP_MAX,
     KEY_TL_BRIDGE_TEMP_MIN,
     KEY_TL_HIGHEST_MAX_TEMP,
@@ -71,19 +74,52 @@ def ch3_loads(input_dict):
             span_m = 0.0
 
     lanes = input_dict.get(KEY_WC_LD_LANE_TABLE_COUNT)
-    lanes_int = 2
+    lanes_int = None
     if lanes not in (None, ""):
         try:
             lanes_int = int(lanes)
         except Exception:
-            lanes_int = 2
+            lanes_int = None
 
-    # Calculate global braking force per IRC 6 Cl. 211
-    try:
-        braking_force_t = IRC6_2017.cl_211_2_braking_force(lanes_int)
-        braking_force_kN = braking_force_t * 9.81
-    except Exception:
-        braking_force_kN = 200.0
+    if lanes_int is None:
+        # Check carriageway width per IRC 6:2017 Table 6 (Cl. 207.1)
+        cw = input_dict.get("typical_section.carriageway_width") or input_dict.get("carriageway_width")
+        if cw not in (None, ""):
+            try:
+                cw_val = float(cw)
+                if cw_val < 5.3:
+                    lanes_int = 1
+                elif cw_val < 9.6:
+                    lanes_int = 2
+                elif cw_val < 13.1:
+                    lanes_int = 3
+                elif cw_val < 16.6:
+                    lanes_int = 4
+                else:
+                    lanes_int = max(2, int((cw_val - 7.5) / 3.5) + 2)
+            except Exception:
+                lanes_int = None
+
+    # Calculate global braking force per IRC 6 Cl. 211 (honest calculation or N/A)
+    braking_force_str = "N/A"
+    if lanes_int is not None:
+        try:
+            braking_force_t = IRC6_2017.cl_211_2_braking_force(lanes_int)
+            braking_force_kN = braking_force_t * 9.81
+            braking_force_str = f"{braking_force_kN:.2f}"
+        except Exception:
+            braking_force_str = "N/A"
+
+    # Centrifugal force per IRC 6:2017 Cl. 212
+    # Applicable only on horizontal curves; straight alignments have zero centrifugal force.
+    radius_val = input_dict.get("geometry.radius_of_curvature") or input_dict.get("radius_of_curvature")
+    if radius_val not in (None, "", "0", 0):
+        try:
+            centrifugal_str = f"{float(radius_val):.1f}m curve"
+        except Exception:
+            centrifugal_str = "N/A"
+    else:
+        centrifugal_str = "0.00 (Straight)"
 
     # -------------------------------------------------------------------------
     # 1. Build distinct Vehicle Live Load records
@@ -99,8 +135,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class A",
             "type": "Wheeled (Standard)",
             "impact": f"{1.0 + im_a:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -110,8 +146,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class 70R (Wheeled)",
             "type": "Heavy Wheeled (100t)",
             "impact": f"{1.0 + im_70r:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -121,8 +157,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class 70R (Tracked)",
             "type": "Tracked (70t)",
             "impact": f"{1.0 + im_70rt:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -132,8 +168,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class AA (Wheeled)",
             "type": "Heavy Wheeled",
             "impact": f"{1.0 + im_aa:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -143,8 +179,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class AA (Tracked)",
             "type": "Tracked (70t)",
             "impact": f"{1.0 + im_aat:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -153,8 +189,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class SV",
             "type": "Special Vehicle",
             "impact": "1.000",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -163,8 +199,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class 70R (Bogie)",
             "type": "Bogie Trailer (40t)",
             "impact": "1.100",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -174,7 +210,7 @@ def ch3_loads(input_dict):
             "type": "Fatigue Assessment",
             "impact": "1.000",
             "braking": "--",
-            "centrifugal": "0.00",
+            "centrifugal": centrifugal_str,
             "status": "Considered"
         })
 
@@ -187,8 +223,8 @@ def ch3_loads(input_dict):
                 "name": name,
                 "type": "User-Defined Custom",
                 "impact": "1.000",
-                "braking": f"{braking_force_kN:.2f}",
-                "centrifugal": "0.00",
+                "braking": braking_force_str,
+                "centrifugal": centrifugal_str,
                 "status": "Considered"
             })
 
@@ -199,8 +235,8 @@ def ch3_loads(input_dict):
             "name": "IRC Class A",
             "type": "Wheeled (Standard)",
             "impact": f"{1.0 + im_def:.3f}",
-            "braking": f"{braking_force_kN:.2f}",
-            "centrifugal": "0.00",
+            "braking": braking_force_str,
+            "centrifugal": centrifugal_str,
             "status": "Default"
         })
 
@@ -213,22 +249,69 @@ def ch3_loads(input_dict):
     # -------------------------------------------------------------------------
     # 2. Footway / Pedestrian Load Details
     # -------------------------------------------------------------------------
-    fp_mode = input_dict.get(KEY_LL_FOOTPATH_PRESSURE_MODE, "")
-    fp_value = input_dict.get(KEY_LL_FOOTPATH_PRESSURE_VALUE, "")
-    
-    if str(fp_mode).strip().lower() in ("as per irc 6", "as per irc6", "automatic"):
+    fp_opt = str(input_dict.get(KEY_FOOTPATH, "")).strip().lower()
+    no_fps = input_dict.get(KEY_TS_NO_OF_FOOTPATHS)
+    has_footway = (fp_opt not in ("", "none", "0")) or (no_fps not in (None, "", 0, "0"))
+
+    fp_intensity = "N/A"
+    fp_ref = "IRC 6:2017 Cl. 206.1"
+    fp_status = "Not Applicable (No Footway)"
+
+    if has_footway:
+        fp_mode = input_dict.get(KEY_LL_FOOTPATH_PRESSURE_MODE, "")
+        fp_value = input_dict.get(KEY_LL_FOOTPATH_PRESSURE_VALUE, "")
+        if str(fp_mode).strip().lower() in ("as per irc 6", "as per irc6", "automatic"):
+            try:
+                fp_load_val = IRC6_2017.cl_206_1_footway_load()
+                fp_intensity = f"{fp_load_val:.3f} kN/m²"
+                fp_ref = "IRC 6:2017 Cl. 206.1"
+                fp_status = "Active on Footways"
+            except Exception:
+                fp_intensity = "N/A"
+                fp_ref = "IRC 6:2017 Cl. 206.1"
+                fp_status = "Unavailable"
+        elif fp_value not in (None, ""):
+            fp_intensity = f"{fp_value} kN/m²"
+            fp_ref = "User Defined Input"
+            fp_status = "Active on Footways"
+        else:
+            fp_intensity = "N/A"
+            fp_ref = "IRC 6:2017 Cl. 206.1"
+            fp_status = "Input Not Provided"
+
+    # Pedestrian railing load
+    rl_val = input_dict.get(KEY_RL_LOAD_VALUE)
+    if rl_val not in (None, ""):
         try:
-            fp_intensity = f"{IRC6_2017.cl_206_1_footway_load():.3f} kN/m²"
-            fp_ref = "IRC 6:2017 Cl. 206.1"
+            rl_load_str = f"{float(rl_val):.3f} kN/m"
+            rl_ref = "User Defined Input"
+            rl_status = "Applied at top of railing"
         except Exception:
-            fp_intensity = "4.000 kN/m²"
-            fp_ref = "IRC 6:2017 Cl. 206.1"
-    elif fp_value not in (None, ""):
-        fp_intensity = f"{fp_value} kN/m²"
-        fp_ref = "User Defined Input"
+            rl_load_str = f"{rl_val} kN/m"
+            rl_ref = "User Defined Input"
+            rl_status = "Applied at top of railing"
     else:
-        fp_intensity = "4.000 kN/m²"
-        fp_ref = "IRC 6:2017 Default"
+        rl_load_str = "N/A"
+        rl_ref = "IRC 6:2017 Cl. 206.3"
+        rl_status = "Input Not Provided"
+
+    # Kerb / Verge Vertical Surcharge
+    kerb_present = input_dict.get(KEY_SAFETY_KERB_PRESENT)
+    if kerb_present and str(kerb_present).strip().lower() not in ("none", "false", "0"):
+        try:
+            kerb_res = IRC6_2017.cl_206_2_kerb_load()
+            k_val = kerb_res.get("kerb_load_kN_per_m2")
+            kerb_load_str = f"{k_val:.3f} kN/m²" if k_val is not None else "N/A"
+            kerb_ref = "IRC 6:2017 Cl. 206.2"
+            kerb_status = "Applied on raised kerb"
+        except Exception:
+            kerb_load_str = "N/A"
+            kerb_ref = "IRC 6:2017 Cl. 206.2"
+            kerb_status = "Calculation Unavailable"
+    else:
+        kerb_load_str = "N/A"
+        kerb_ref = "IRC 6:2017 Cl. 206.2"
+        kerb_status = "Not Applicable (No Raised Kerb)"
 
     # Wind and Seismic calculations
     vz_val = input_dict.get(KEY_WL_HOURLY_MEAN_WIND)
@@ -365,21 +448,27 @@ This section summarizes all gravity, vehicular live, pedestrian, climatic, and s
 \end{longtable}
 
 \vspace{0.8em}
-\begin{longtable}{|L{3.6cm}|C{3.2cm}|C{2.4cm}|C{2.3cm}|C{2.0cm}|C{1.8cm}|}
+\begingroup
+\setlength{\tabcolsep}{3.5pt}
+\begin{longtable}{|L{3.2cm}|C{3.0cm}|C{2.4cm}|C{2.2cm}|C{2.0cm}|C{1.7cm}|}
 """ + t33_hdr + r"""
 """ + vehicle_rows_str + r"""
 \end{longtable}
-\noindent\textit{Note: Live load vehicles are populated as selected in the UI Loading Tab. Impact factor and braking forces are computed strictly per IRC 6:2017 Clauses 208 and 211.}
+\endgroup
+\noindent\textit{Note: Live load vehicles are populated as selected in the UI Loading Tab. Impact factor and braking forces are computed strictly per IRC 6:2017 Clauses 208 and 211. Centrifugal force is 0.00 kN for straight bridge alignments per IRC 6:2017 Cl. 212.}
 
 \vspace{0.8em}
-\begin{longtable}{|L{5.0cm}|C{3.5cm}|C{3.2cm}|C{3.6cm}|}
+\begingroup
+\setlength{\tabcolsep}{4.0pt}
+\begin{longtable}{|L{4.8cm}|C{3.5cm}|C{3.0cm}|C{3.5cm}|}
 """ + t34_hdr + r"""
-\textnormal{Footway Live Load Intensity} & """ + _tex(fp_ref) + r""" & """ + _tex(fp_intensity) + r""" & \textnormal{Active on Footways} \\[4pt]
+\textnormal{Footway Live Load Intensity} & """ + _tex(fp_ref) + r""" & """ + _tex(fp_intensity) + r""" & \textnormal{""" + _tex(fp_status) + r"""} \\[4pt]
 \hline
-\textnormal{Pedestrian Railing Horizontal Load} & IRC 6:2017 Cl. 206.3 & 1.500 kN/m & \textnormal{Applied at top of railing} \\[4pt]
+\textnormal{Pedestrian Railing Horizontal Load} & """ + _tex(rl_ref) + r""" & """ + _tex(rl_load_str) + r""" & \textnormal{""" + _tex(rl_status) + r"""} \\[4pt]
 \hline
-\textnormal{Kerb / Verge Vertical Surcharge} & IRC 6:2017 Cl. 206.2 & 4.000 kN/m² & \textnormal{Applied on raised kerb} \\[4pt]
+\textnormal{Kerb / Verge Vertical Surcharge} & """ + _tex(kerb_ref) + r""" & """ + _tex(kerb_load_str) + r""" & \textnormal{""" + _tex(kerb_status) + r"""} \\[4pt]
 \end{longtable}
+\endgroup
 
 \vspace{0.8em}
 \begin{longtable}{|L{6.0cm}|p{9.5cm}|}

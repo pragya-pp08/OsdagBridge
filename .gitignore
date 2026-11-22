@@ -264,3 +264,15 @@ src/osdag_map_cache/
 temp_plot.html
 *.html
 tools/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Pytest cache
+.pytest_cache/

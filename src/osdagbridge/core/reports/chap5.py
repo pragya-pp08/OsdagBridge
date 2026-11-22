@@ -145,6 +145,269 @@ from osdagbridge.core.reports.report_utils import _tex, _render_value, get_girde
 
 if TYPE_CHECKING:
     pass
+
+
+def _dfmt(v, nd=2):
+    """Format a numeric value to nd decimal places; empty string when None/invalid."""
+    try:
+        if v is None or v == "":
+            return ""
+        return f"{float(v):.{nd}f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def extract_design_checks_summary(bridge):
+    """
+    Single Source of Truth for Section 5.5 Design Check Summary Table (Table 5.22)
+    and the accompanying Utilization Ratio Visualization chart.
+    
+    Returns:
+      (t522_rows: List[str], checks_summary: List[Dict[str, Any]])
+    """
+    _pg_522 = (bridge.output_dict.get("design_results", {}) or {}).get("per_girder", {}) or {}
+    _dd_522 = bridge.output_dict.get("deck_design_results", {}) or {}
+    deck_rpt = bridge.output_dict.get("deck_report_values", {}) or {}
+    _dk_has = bool(_dd_522)
+    _dk_oh = bool(bridge.input_dict.get(KEY_TS_DECK_OVERHANG, 0) or 0)
+
+    def _dkv(key, default=0.0):
+        try:
+            val = deck_rpt.get(key)
+            return float(val) if val not in (None, "") else default
+        except (TypeError, ValueError):
+            return default
+
+    def _vu_522(v, unit):
+        s = _dfmt(v, nd=2)
+        if not s:
+            return ""
+        u = (unit or "").strip()
+        return (s + " " + u) if u else s
+
+    def _ur_522(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return ""
+        s = f"{f:.2f}"
+        return (r"\textcolor{osdagFail}{\textbf{" + s + "}}") if f > 1.0 else s
+
+    def _lc_short(lc):
+        return _tex(str(lc).strip())
+
+    def _gov_lc_in_522(g, check_ids):
+        gd = _pg_522.get(g) or {}
+        best = None
+        for _lc, _ld in (gd.get("per_lc") or {}).items():
+            if str(_lc).lower().startswith("envelope"):
+                continue
+            for _chk in (_ld.get("checks") or []):
+                if _chk.get("id") in check_ids:
+                    _d = _chk.get("dcr") or 0.0
+                    if best is None or _d > best[0]:
+                        best = (_d, _lc)
+        return _lc_short(best[1]) if best else "---"
+
+    def _dcr_row(check_ids, fallback_unit=""):
+        best = None  # (dcr, demand, capacity, dunit, cunit, g)
+        for g, gd in _pg_522.items():
+            if str(g).startswith("EB"):
+                continue
+            for chk in (gd.get("checks") or []):
+                if chk.get("check_id") in check_ids:
+                    d = chk.get("dcr") or 0.0
+                    if best is None or d > best[0]:
+                        best = (d, chk.get("demand"), chk.get("capacity"),
+                                chk.get("demand_unit") or "", chk.get("capacity_unit") or "", g)
+        if best is not None:
+            d, dem, cap, du, cu, g = best
+            return (_gov_lc_in_522(g, check_ids),
+                    _vu_522(dem, du) or "---", _vu_522(cap, cu) or "---", _ur_522(d) or "---"), float(d)
+        best = None  # (dcr, demand, capacity, lc)
+        for g, gd in _pg_522.items():
+            if str(g).startswith("EB"):
+                continue
+            for _lc, _ld in (gd.get("per_lc") or {}).items():
+                if str(_lc).lower().startswith("envelope"):
+                    continue
+                for chk in (_ld.get("checks") or []):
+                    if chk.get("id") in check_ids:
+                        d = chk.get("dcr") or 0.0
+                        if best is None or d > best[0]:
+                            best = (d, chk.get("demand"), chk.get("capacity"), _lc)
+        if best is None:
+            return ("---", "---", "---", "---"), None
+        d, dem, cap, _lc = best
+        return (_lc_short(_lc),
+                _vu_522(dem, fallback_unit) or "---", _vu_522(cap, fallback_unit) or "---",
+                _ur_522(d) or "---"), float(d)
+
+    _cb_pairs_522 = bridge.get_cb_pairs()
+
+    def _cb_row(force_type):
+        best = None  # (ur, pair, member, capacity_str)
+        for pair in _cb_pairs_522:
+            for member in ("diagonal", "chord"):
+                cap = bridge.get_cb_capacity(pair, member, force_type)
+                eff = bridge.get_cb_efficiency(pair, member, force_type)
+                try:
+                    ur = float(eff)
+                except (TypeError, ValueError):
+                    continue
+                if best is None or ur > best[0]:
+                    best = (ur, pair, member, cap)
+        if best is None:
+            return ("---", "---", "---", "---"), None
+        ur, pair, member, cap = best
+        gov = bridge.get_cb_gov_lc(pair, member, force_type) or "---"
+        dem = f"{float(cap) * ur:.2f} kN" if cap else "---"
+        cap_s = (cap + " kN") if cap else "---"
+        return (gov, dem, cap_s, _ur_522(ur)), float(ur)
+
+    def _cb_slender_row():
+        best = None  # (ratio, slend, limit)
+        for pair in _cb_pairs_522:
+            for member in ("diagonal", "chord"):
+                s = bridge.get_cb_slenderness(pair, member)
+                try:
+                    sf = float(s)
+                except (TypeError, ValueError):
+                    continue
+                lim = 400.0 if member == "chord" else 250.0
+                ratio = sf / lim
+                if best is None or ratio > best[0]:
+                    best = (ratio, sf, lim)
+        if best is None:
+            return ("---", "---", "---", "---"), None
+        ratio, sf, lim = best
+        return ("---", f"{sf:.1f}", f"{lim:.0f}", _ur_522(ratio)), float(ratio)
+
+    def _row522(label, cells):
+        c = [x if x else "---" for x in cells]
+        return label + r" & " + r" & ".join(c) + r" \\[6pt]" + "\n\\hline"
+
+    _deck_combo = (
+        r"Basic ULS: " + _tex(f"{_dkv(KEY_DD_GAMMA_DL):g}DL + {_dkv(KEY_DD_GAMMA_LL):g}LL")
+    ) if _dk_has else "---"
+
+    def _deck_row(dem_key, cap_key, unit, is_oh=False):
+        if not _dk_has:
+            return ("---", "---", "---", "---"), None
+        if is_oh and not _dk_oh:
+            return (_deck_combo, "N/A", "N/A", "N/A"), None
+        dem = _dkv(dem_key)
+        cap = _dkv(cap_key)
+        ur = (dem / cap) if cap > 0 else None
+        return (_deck_combo, f"{dem:.2f} {unit}", f"{cap:.2f} {unit}", _ur_522(ur)), (float(ur) if ur is not None else None)
+
+    def _row522_msg(label, msg):
+        return label + r" & \multicolumn{4}{c|}{" + msg + r"} \\[6pt]" + "\n\\hline"
+
+    _ed_type = ""
+    for _k, _v in bridge.input_dict.items():
+        if str(_k).startswith(KEY_MP_ED_TYPE) and _v:
+            _ed_type = str(_v)
+            break
+    _ed_is_cb = "brac" in _ed_type.strip().lower()
+    if _ed_is_cb:
+        ed_mom_cells, ed_mom_ur = _cb_row("compression")
+        ed_shear_cells, ed_shear_ur = _cb_row("tension")
+        _ed_moment_row = _row522(r"End Diaphragm --- Moment", ed_mom_cells)
+        _ed_shear_row  = _row522(r"End Diaphragm --- Shear",  ed_shear_cells)
+    else:
+        _ed_msg = r"Rolled / Welded section --- design to be added"
+        _ed_moment_row = _row522_msg(r"End Diaphragm --- Moment", _ed_msg)
+        _ed_shear_row  = _row522_msg(r"End Diaphragm --- Shear",  _ed_msg)
+        ed_mom_ur = None
+        ed_shear_ur = None
+
+    def _gov_sls_frequent():
+        best = None
+        for _g, _gd in _pg_522.items():
+            if str(_g).startswith("EB"):
+                continue
+            for _lc, _ld in (_gd.get("per_lc") or {}).items():
+                if "frequent" not in str(_lc).lower():
+                    continue
+                _d = _ld.get("max_dcr") or 0.0
+                if best is None or _d > best[0]:
+                    best = (_d, _lc)
+        return _tex(str(best[1]).strip()) if best else "Frequent SLS"
+
+    _dk_wks = [_dkv(KEY_DD_WK_BOT), _dkv(KEY_DD_WK_TOP)]
+    if _dk_oh:
+        _dk_wks.append(_dkv(KEY_DD_WK_OH))
+    _dk_gov_wk = max(_dk_wks) if _dk_wks else 0.0
+    _wk_lim = _dkv(KEY_DD_WK_LIMIT)
+    _crack_ur = (_dk_gov_wk / _wk_lim) if (_dk_has and _wk_lim > 0) else None
+    _crack_cells = (
+        (_gov_sls_frequent() if _dk_has else "---"),
+        (f"{_dk_gov_wk:.3f} mm" if _dk_has else "---"),
+        (f"{_wk_lim:.3f} mm" if _dk_has else "---"),
+        (_ur_522(_crack_ur) if _crack_ur is not None else "---"),
+    )
+
+    # Evaluate each check
+    c_g_mom, ur_g_mom = _dcr_row({1})
+    c_g_shr, ur_g_shr = _dcr_row({2})
+    c_g_ltb, ur_g_ltb = _dcr_row({5})
+    c_g_def, ur_g_def = _dcr_row({13, 14}, fallback_unit="mm")
+    c_g_str, ur_g_str = _dcr_row({11}, fallback_unit="MPa")
+    c_g_fat, ur_g_fat = _dcr_row({8, 9}, fallback_unit="MPa")
+    c_g_tsh, ur_g_tsh = _dcr_row({16})
+    c_d_sag, ur_d_sag = _deck_row(KEY_DD_M_ULS_SAG, KEY_DD_MU_BOT, "kN-m/m")
+    c_d_hog, ur_d_hog = _deck_row(KEY_DD_M_ULS_HOG, KEY_DD_MU_TOP, "kN-m/m")
+    c_d_ohe, ur_d_ohe = _deck_row(KEY_DD_M_ULS_OH, KEY_DD_MU_OH, "kN-m/m", is_oh=True)
+    c_d_pnc, ur_d_pnc = _deck_row(KEY_DD_PUNCH_VED, KEY_DD_VRD_C_MPA, "MPa")
+    c_d_ows, ur_d_ows = _deck_row(KEY_DD_SHEAR_VED, KEY_DD_SHEAR_VRDC, "kN/m")
+    c_b_cmp, ur_b_cmp = _cb_row("compression")
+    c_b_tns, ur_b_tns = _cb_row("tension")
+    c_b_sln, ur_b_sln = _cb_slender_row()
+
+    t522_rows = [
+        _row522(r"Girder --- Moment",             c_g_mom),
+        _row522(r"Girder --- Shear",              c_g_shr),
+        _row522(r"Girder --- LTB (constr.)",      c_g_ltb),
+        _row522(r"Girder --- Deflection",         c_g_def),
+        _row522(r"Girder --- Stress",             c_g_str),
+        _row522(r"Girder --- Fatigue",            c_g_fat),
+        _row522(r"Transverse Shear (slab)",       c_g_tsh),
+        _row522(r"Crack Width (slab)",            _crack_cells),
+        _row522(r"Deck --- Flexure (sagging)",    c_d_sag),
+        _row522(r"Deck --- Flexure (hogging)",    c_d_hog),
+        _row522(r"Deck --- Cantilever Overhang",  c_d_ohe),
+        _row522(r"Deck --- Punching Shear",       c_d_pnc),
+        _row522(r"Deck --- One-Way Shear",        c_d_ows),
+        _row522(r"Cross Bracing --- Compression", c_b_cmp),
+        _row522(r"Cross Bracing --- Tension",     c_b_tns),
+        _row522(r"Cross Bracing --- Slenderness", c_b_sln),
+        _ed_moment_row,
+        _ed_shear_row,
+    ]
+
+    checks_summary = [
+        {"element": "Girder Moment", "ur": ur_g_mom, "group": "Girders"},
+        {"element": "Girder Shear", "ur": ur_g_shr, "group": "Girders"},
+        {"element": "Girder LTB", "ur": ur_g_ltb, "group": "Girders"},
+        {"element": "Girder Deflection", "ur": ur_g_def, "group": "Girders"},
+        {"element": "Girder Stress", "ur": ur_g_str, "group": "Girders"},
+        {"element": "Girder Fatigue", "ur": ur_g_fat, "group": "Girders"},
+        {"element": "Transverse Shear", "ur": ur_g_tsh, "group": "Deck Slab"},
+        {"element": "Crack Width", "ur": _crack_ur, "group": "Deck Slab"},
+        {"element": "Deck Sagging", "ur": ur_d_sag, "group": "Deck Slab"},
+        {"element": "Deck Hogging", "ur": ur_d_hog, "group": "Deck Slab"},
+        {"element": "Deck Cantilever", "ur": ur_d_ohe, "group": "Deck Slab"},
+        {"element": "Deck Punching", "ur": ur_d_pnc, "group": "Deck Slab"},
+        {"element": "Deck One-Way Shear", "ur": ur_d_ows, "group": "Deck Slab"},
+        {"element": "Bracing Compression", "ur": ur_b_cmp, "group": "Cross Bracing"},
+        {"element": "Bracing Tension", "ur": ur_b_tns, "group": "Cross Bracing"},
+        {"element": "Bracing Slenderness", "ur": ur_b_sln, "group": "Cross Bracing"},
+        {"element": "End Diaphragm Moment", "ur": ed_mom_ur, "group": "End Diaphragms"},
+        {"element": "End Diaphragm Shear", "ur": ed_shear_ur, "group": "End Diaphragms"},
+    ]
+
+    return t522_rows, checks_summary
 def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     """Chapter 5 — Design Checks.
 
@@ -218,7 +481,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     try:
         _flex_ur = float(bridge.output_dict.get(KEY_UTIL_FLEXURE)) / 100.0
         _flex_ur_str = f"{_flex_ur:.2f}"
-        _flex_status = "PASS" if _flex_ur <= 1.0 else r"\textcolor{red}{FAIL}"
+        _flex_status = r"\textcolor{osdagPass}{\textbf{PASS}}" if _flex_ur <= 1.0 else r"\textcolor{osdagFail}{\textbf{FAIL}}"
     except (TypeError, ValueError):
         _flex_ur_str = ""
         _flex_status = "---"
@@ -240,7 +503,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     try:
         _shear_ur = float(bridge.output_dict.get(KEY_UTIL_SHEAR)) / 100.0
         _shear_ur_str = f"{_shear_ur:.2f}"
-        _shear_status = "PASS" if _shear_ur <= 1.0 else r"\textcolor{red}{FAIL}"
+        _shear_status = r"\textcolor{osdagPass}{\textbf{PASS}}" if _shear_ur <= 1.0 else r"\textcolor{osdagFail}{\textbf{FAIL}}"
     except (TypeError, ValueError):
         _shear_ur_str = ""
         _shear_status = "---"
@@ -270,10 +533,10 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     # Interaction DCRs use the engine bands: PASS <0.90, WARN <1.00, FAIL ≥1.00.
     def _interaction_status(ratio):
         if ratio < 0.90:
-            return "PASS"
+            return r"\textcolor{osdagPass}{\textbf{PASS}}"
         elif ratio < 1.00:
-            return "WARN"
-        return r"\textcolor{red}{FAIL}"
+            return r"\textcolor{osdagWarning}{\textbf{WARN}}"
+        return r"\textcolor{osdagFail}{\textbf{FAIL}}"
     # M-V interaction UR stored as percent → show ratio (2 dp).
     try:
         _mv_ur = float(bridge.output_dict.get(KEY_UTIL_INTERACTION)) / 100.0
@@ -354,7 +617,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     # Status: PASS when Provided ≥ Required.
     def _ge_status(provided, required):
         try:
-            return "PASS" if float(provided) >= float(required) else r"\textcolor{red}{FAIL}"
+            return r"\textcolor{osdagPass}{\textbf{PASS}}" if float(provided) >= float(required) else r"\textcolor{osdagFail}{\textbf{FAIL}}"
         except (TypeError, ValueError):
             return "---"
     _iys_status = _ge_status(bridge.output_dict.get(KEY_SD_IS_IYS_PROV),
@@ -418,7 +681,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
             return ("N/A", "N/A", "N/A")
         req_s  = f"{_bs_r} kN"
         prov_s = f"{prov} kN"
-        status = "PASS" if float(prov) >= float(_bs_r) else r"\textcolor{red}{FAIL}"
+        status = r"\textcolor{osdagPass}{\textbf{PASS}}" if float(prov) >= float(_bs_r) else r"\textcolor{osdagFail}{\textbf{FAIL}}"
         return (req_s, prov_s, status)
     _wb_req, _wb_prov, _wb_st = _bs_check(KEY_SD_BS_FCDW_WB)
     _lc_req, _lc_prov, _lc_st = _bs_check(KEY_SD_BS_FCDW_LC)
@@ -448,7 +711,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     def _defl_status(actual, allowable):
         """PASS / red FAIL for deflection; '---' when values are missing."""
         try:
-            return "PASS" if float(actual) <= float(allowable) else r"\textcolor{red}{FAIL}"
+            return r"\textcolor{osdagPass}{\textbf{PASS}}" if float(actual) <= float(allowable) else r"\textcolor{osdagFail}{\textbf{FAIL}}"
         except (TypeError, ValueError):
             return "---"
 
@@ -506,7 +769,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
 
     def _stress_status(actual, allow):
         try:
-            return "PASS" if float(actual) <= float(allow) else r"\textcolor{red}{FAIL}"
+            return r"\textcolor{osdagPass}{\textbf{PASS}}" if float(actual) <= float(allow) else r"\textcolor{osdagFail}{\textbf{FAIL}}"
         except (TypeError, ValueError):
             return "---"
 
@@ -539,7 +802,7 @@ def ch5_design_checks(checks_data, bridge, fig_paths=None) -> str:
     def _fat_status(s):
         if s is None or str(s).strip() == "":
             return "---"
-        return r"\textcolor{red}{" + str(s) + "}" if "FAIL" in str(s).upper() else str(s)
+        return r"\textcolor{osdagFail}{\textbf{" + str(s) + "}}" if "FAIL" in str(s).upper() else r"\textcolor{osdagPass}{\textbf{" + str(s) + "}}"
 
     t512_rows = []
     for _gi, (lbl, _) in enumerate(girder_entries, start=1):
@@ -667,7 +930,7 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
     else:
         _ts_ur_str = "---"
     _ts_ok = _dr_sc.get("transverse_shear_ok")
-    _ts_status = (r"\textcolor{red}{FAIL}" if _ts_ok is False else "PASS") if _ts_ok is not None else "---"
+    _ts_status = (r"\textcolor{osdagFail}{\textbf{FAIL}}" if _ts_ok is False else r"\textcolor{osdagPass}{\textbf{PASS}}") if _ts_ok is not None else "---"
 
     _ast_req  = _dr_sc.get("Ast_required_cm2_per_m")
     # Provided transverse steel = the deck's main (bottom + top) bars, which run
@@ -751,7 +1014,7 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
     def get_status_str(slnd_str, limit):
         try:
             v = float(slnd_str)
-            return r"\textcolor{black}{PASS}" if v <= limit else r"\textcolor{red}{FAIL}"
+            return r"\textcolor{osdagPass}{\textbf{PASS}}" if v <= limit else r"\textcolor{osdagFail}{\textbf{FAIL}}"
         except (ValueError, TypeError):
             return ""
     cb_slenderness_rows = []
@@ -848,7 +1111,7 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
 
     def _dks(ok):
         """PASS/FAIL status; '---' when deck design not run."""
-        return ("PASS" if ok else "FAIL") if _dk_has else "---"
+        return (r"\textcolor{osdagPass}{\textbf{PASS}}" if ok else r"\textcolor{osdagFail}{\textbf{FAIL}}") if _dk_has else "---"
 
     def _dkoh(key, nd=2, scale=1.0, unit=""):
         """Overhang value; 'N/A' when there is no overhang."""
@@ -867,217 +1130,8 @@ Fatigue Shear Resistance, $Q_r$ & IRC 22 Table 8 ($\phi d$, $N_{sc}$) & """
     _dk_crack_ok = _dk_has and _dk_gov_wk <= _dkv(KEY_DD_WK_LIMIT)
 
     # ── Table 5.22: Overall Design Check Summary — fill all rows ─────────────
-    # Three row families:
-    #  (1) Girder DCR-engine checks: one source (design_results["per_girder"])
-    #      gives Demand, Capacity, UR, and the governing LC together. Worst
-    #      girder = highest DCR. Most checks fire on the envelope demand (units
-    #      available in per_girder["checks"]); SLS-conditional checks (e.g.
-    #      deflection) only appear per-LC, so fall back to per_lc for those.
-    #  (2) Deck slab: URs from deck_design_results (Demand/Capacity not stored).
-    #  (3) Cross bracing: existing get_cb_* helpers (worst pair/member by UR).
-    #      End diaphragm has no report helpers yet → "---" for now.
-    _pg_522 = (bridge.output_dict.get("design_results", {}) or {}).get("per_girder", {}) or {}
-    _dd_522 = bridge.output_dict.get("deck_design_results", {}) or {}
-
-    def _vu_522(v, unit):
-        s = _dfmt(v, nd=2)
-        if not s:
-            return ""
-        u = (unit or "").strip()
-        return (s + " " + u) if u else s
-
-    def _ur_522(v):
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return ""
-        s = f"{f:.2f}"
-        return (r"\textcolor{red}{" + s + "}") if f > 1.0 else s
-
-    def _lc_short(lc):
-        # Show the full combination expression as-is, e.g.
-        # "ACCIDENTAL 1: 1.0DL + 1.0DW + 0.75LL" (the per_lc key).
-        return _tex(str(lc).strip())
-
-    def _gov_lc_in_522(g, check_ids):
-        gd = _pg_522.get(g) or {}
-        best = None
-        for _lc, _ld in (gd.get("per_lc") or {}).items():
-            if str(_lc).lower().startswith("envelope"):
-                continue
-            for _chk in (_ld.get("checks") or []):
-                if _chk.get("id") in check_ids:
-                    _d = _chk.get("dcr") or 0.0
-                    if best is None or _d > best[0]:
-                        best = (_d, _lc)
-        return _lc_short(best[1]) if best else "---"
-
-    def _dcr_row(check_ids, fallback_unit=""):
-        # Prefer per_girder["checks"] (carries units); worst girder by DCR.
-        best = None  # (dcr, demand, capacity, dunit, cunit, g)
-        for g, gd in _pg_522.items():
-            if str(g).startswith("EB"):
-                continue
-            for chk in (gd.get("checks") or []):
-                if chk.get("check_id") in check_ids:
-                    d = chk.get("dcr") or 0.0
-                    if best is None or d > best[0]:
-                        best = (d, chk.get("demand"), chk.get("capacity"),
-                                chk.get("demand_unit") or "", chk.get("capacity_unit") or "", g)
-        if best is not None:
-            d, dem, cap, du, cu, g = best
-            return (_gov_lc_in_522(g, check_ids),
-                    _vu_522(dem, du) or "---", _vu_522(cap, cu) or "---", _ur_522(d) or "---")
-        # Fallback: per_lc (no units) for SLS-conditional checks (e.g. deflection).
-        best = None  # (dcr, demand, capacity, lc)
-        for g, gd in _pg_522.items():
-            if str(g).startswith("EB"):
-                continue
-            for _lc, _ld in (gd.get("per_lc") or {}).items():
-                if str(_lc).lower().startswith("envelope"):
-                    continue
-                for chk in (_ld.get("checks") or []):
-                    if chk.get("id") in check_ids:
-                        d = chk.get("dcr") or 0.0
-                        if best is None or d > best[0]:
-                            best = (d, chk.get("demand"), chk.get("capacity"), _lc)
-        if best is None:
-            return ("---", "---", "---", "---")
-        d, dem, cap, _lc = best
-        return (_lc_short(_lc),
-                _vu_522(dem, fallback_unit) or "---", _vu_522(cap, fallback_unit) or "---",
-                _ur_522(d) or "---")
-
-    # (3) Cross bracing — worst pair/member by UR for the given force type.
-    _cb_pairs_522 = bridge.get_cb_pairs()
-
-    def _cb_row(force_type):
-        best = None  # (ur, pair, member, capacity_str)
-        for pair in _cb_pairs_522:
-            for member in ("diagonal", "chord"):
-                cap = bridge.get_cb_capacity(pair, member, force_type)
-                eff = bridge.get_cb_efficiency(pair, member, force_type)
-                try:
-                    ur = float(eff)
-                except (TypeError, ValueError):
-                    continue
-                if best is None or ur > best[0]:
-                    best = (ur, pair, member, cap)
-        if best is None:
-            return ("---", "---", "---", "---")
-        ur, pair, member, cap = best
-        gov = bridge.get_cb_gov_lc(pair, member, force_type) or "---"
-        dem = f"{float(cap) * ur:.2f} kN" if cap else "---"
-        cap_s = (cap + " kN") if cap else "---"
-        return (gov, dem, cap_s, _ur_522(ur))
-
-    def _cb_slender_row():
-        best = None  # (ratio, slend, limit)
-        for pair in _cb_pairs_522:
-            for member in ("diagonal", "chord"):
-                s = bridge.get_cb_slenderness(pair, member)
-                try:
-                    sf = float(s)
-                except (TypeError, ValueError):
-                    continue
-                lim = 400.0 if member == "chord" else 250.0
-                ratio = sf / lim
-                if best is None or ratio > best[0]:
-                    best = (ratio, sf, lim)
-        if best is None:
-            return ("---", "---", "---", "---")
-        ratio, sf, lim = best
-        return ("---", f"{sf:.1f}", f"{lim:.0f}", _ur_522(ratio))
-
-    def _row522(label, cells):
-        c = [x if x else "---" for x in cells]
-        return label + r" & " + r" & ".join(c) + r" \\[6pt]" + "\n\\hline"
-
-    # Deck rows: Demand/Capacity from deck_report_values (KEY_DD_*, the same dict
-    # the 5.17 tables use); UR = Demand/Capacity. The deck is designed for the
-    # IRC:6 Basic ULS combination — build that combo string from the stored
-    # partial factors (gamma_dl, gamma_ll).
-    _deck_combo = (
-        r"Basic ULS: " + _tex(f"{_dkv(KEY_DD_GAMMA_DL):g}DL + {_dkv(KEY_DD_GAMMA_LL):g}LL")
-    ) if _dk_has else "---"
-
-    def _deck_row(dem_key, cap_key, unit, is_oh=False):
-        if not _dk_has:
-            return ("---", "---", "---", "---")
-        if is_oh and not _dk_oh:
-            return (_deck_combo, "N/A", "N/A", "N/A")
-        dem = _dkv(dem_key)
-        cap = _dkv(cap_key)
-        ur = (dem / cap) if cap > 0 else None
-        return (_deck_combo, f"{dem:.2f} {unit}", f"{cap:.2f} {unit}", _ur_522(ur))
-
-    def _row522_msg(label, msg):
-        # Single message spanning the 4 data columns.
-        return label + r" & \multicolumn{4}{c|}{" + msg + r"} \\[6pt]" + "\n\\hline"
-
-    # End diaphragm: when configured as Cross Bracing it is designed as bracing
-    # members → mirror the cross-bracing axial rows. For Rolled / Welded beam end
-    # diaphragms the moment/shear design is not implemented yet → show a message.
-    _ed_type = ""
-    for _k, _v in bridge.input_dict.items():
-        if str(_k).startswith(KEY_MP_ED_TYPE) and _v:
-            _ed_type = str(_v)
-            break
-    _ed_is_cb = "brac" in _ed_type.strip().lower()
-    if _ed_is_cb:
-        _ed_moment_row = _row522(r"End Diaphragm --- Moment", _cb_row("compression"))
-        _ed_shear_row  = _row522(r"End Diaphragm --- Shear",  _cb_row("tension"))
-    else:
-        _ed_msg = r"Rolled / Welded section --- design to be added"
-        _ed_moment_row = _row522_msg(r"End Diaphragm --- Moment", _ed_msg)
-        _ed_shear_row  = _row522_msg(r"End Diaphragm --- Shear",  _ed_msg)
-
-    # Crack width (slab): governing crack width vs limit from the deck designer
-    # (frequent SLS combination). _dk_gov_wk is the max of bottom/top/overhang wk.
-    # The governing load combo is the SLS-frequent combination with the highest
-    # DCR (its full expression comes straight from the per_lc keys).
-    def _gov_sls_frequent():
-        best = None  # (dcr, lc)
-        for _g, _gd in _pg_522.items():
-            if str(_g).startswith("EB"):
-                continue
-            for _lc, _ld in (_gd.get("per_lc") or {}).items():
-                if "frequent" not in str(_lc).lower():
-                    continue
-                _d = _ld.get("max_dcr") or 0.0
-                if best is None or _d > best[0]:
-                    best = (_d, _lc)
-        return _tex(str(best[1]).strip()) if best else "Frequent SLS"
-
-    _wk_lim = _dkv(KEY_DD_WK_LIMIT)
-    _crack_cells = (
-        (_gov_sls_frequent() if _dk_has else "---"),
-        (f"{_dk_gov_wk:.3f} mm" if _dk_has else "---"),
-        (f"{_wk_lim:.3f} mm" if _dk_has else "---"),
-        (_ur_522(_dk_gov_wk / _wk_lim) if (_dk_has and _wk_lim > 0) else "---"),
-    )
-
-    _t522 = [
-        _row522(r"Girder --- Moment",             _dcr_row({1})),
-        _row522(r"Girder --- Shear",              _dcr_row({2})),
-        _row522(r"Girder --- LTB (constr.)",      _dcr_row({5})),
-        _row522(r"Girder --- Deflection",         _dcr_row({13, 14}, fallback_unit="mm")),
-        _row522(r"Girder --- Stress",             _dcr_row({11}, fallback_unit="MPa")),
-        _row522(r"Girder --- Fatigue",            _dcr_row({8, 9}, fallback_unit="MPa")),
-        _row522(r"Transverse Shear (slab)",       _dcr_row({16})),
-        _row522(r"Crack Width (slab)",            _crack_cells),
-        _row522(r"Deck --- Flexure (sagging)",    _deck_row(KEY_DD_M_ULS_SAG, KEY_DD_MU_BOT, "kN-m/m")),
-        _row522(r"Deck --- Flexure (hogging)",    _deck_row(KEY_DD_M_ULS_HOG, KEY_DD_MU_TOP, "kN-m/m")),
-        _row522(r"Deck --- Cantilever Overhang",  _deck_row(KEY_DD_M_ULS_OH, KEY_DD_MU_OH, "kN-m/m", is_oh=True)),
-        _row522(r"Deck --- Punching Shear",       _deck_row(KEY_DD_PUNCH_VED, KEY_DD_VRD_C_MPA, "MPa")),
-        _row522(r"Deck --- One-Way Shear",        _deck_row(KEY_DD_SHEAR_VED, KEY_DD_SHEAR_VRDC, "kN/m")),
-        _row522(r"Cross Bracing --- Compression", _cb_row("compression")),
-        _row522(r"Cross Bracing --- Tension",     _cb_row("tension")),
-        _row522(r"Cross Bracing --- Slenderness", _cb_slender_row()),
-        _ed_moment_row,
-        _ed_shear_row,
-    ]
-    t522_content = "\n".join(_t522)
+    t522_rows, _ = extract_design_checks_summary(bridge)
+    t522_content = "\n".join(t522_rows)
 
     return r"""
 \chapter{Design Checks}

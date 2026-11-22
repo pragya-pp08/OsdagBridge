@@ -5,7 +5,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ def get_latex_color_definitions() -> str:
 
 def build_longtable_header(
     caption: str,
-    header_rows: List[str],
+    header_rows: Union[List[str], List[List[str]]],
     label: Optional[str] = None,
     num_cols: int = 2,
     short_caption: Optional[str] = None
@@ -119,12 +119,25 @@ def build_longtable_header(
       - First page displays caption, optional label, and header row.
       - Every subsequent page repeated header displays caption (continued) and identical header row.
       - Page bottoms have standard continuation indicators via \\endfoot and \\endlastfoot.
+      - Header columns in the same row are joined using " & ".
     """
     lbl_tex = f"\\label{{{label}}}" if label else ""
     short_cap = f"[{short_caption}]" if short_caption else ""
     cap_text = f"\\textbf{{{caption}}}"
     
-    header_content = " \\\\\n\\hline\n".join(header_rows) + " \\\\\n\\hline"
+    if not header_rows:
+        header_content = ""
+    elif isinstance(header_rows[0], (list, tuple)):
+        # List of rows, each being a list of column strings
+        row_lines = [" & ".join(row) + r" \\[4pt]" for row in header_rows]
+        header_content = "\n\\hline\n".join(row_lines) + "\n\\hline"
+    elif any("&" in str(r) for r in header_rows):
+        # Already joined row strings
+        row_lines = [r.rstrip(r" \t\n\\") + r" \\[4pt]" for r in header_rows]
+        header_content = "\n\\hline\n".join(row_lines) + "\n\\hline"
+    else:
+        # A single row given as a list of column header cells
+        header_content = " & ".join(header_rows) + r" \\[4pt]" + "\n\\hline"
 
     return f"""\\caption{short_cap}{{{cap_text}}}{lbl_tex} \\\\
 \\hline
@@ -203,7 +216,7 @@ def enhance_longtables_in_tex(tex: str) -> str:
     pattern = re.compile(
         r'(\\begin\{longtable\}\{(.+?)\}\s*'
         r'\\caption\{(.+?)\}\s*(?:\\label\{([^}]+)\}\s*)?'
-        r'\\hline\s*'
+        r'(?:\\\\)?\s*\\hline\s*'
         r'(.+?)\s*'
         r'\\hline)',
         re.DOTALL

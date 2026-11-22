@@ -18,6 +18,7 @@ from osdagbridge.core.reports.report_generator import (
     ReportRequest,
     ReportFigures,
     ReportPayload,
+    ReportDataBridge,
     build_report_payload,
     generate_report,
 )
@@ -27,12 +28,15 @@ from osdagbridge.core.reports.styles import (
     TABLE_STYLE,
     get_latex_color_definitions,
     build_page_styles,
+    build_longtable_header,
     enhance_longtables_in_tex,
 )
 from osdagbridge.core.reports.plots import (
     generate_utilization_ratio_plot,
     generate_material_quantity_plots,
 )
+from osdagbridge.core.reports.chap3 import ch3_loads
+from osdagbridge.core.reports.chap5 import extract_design_checks_summary, ch5_design_checks
 from osdagbridge.core.utils.common import (
     KEY_SPAN,
     KEY_TS_NO_OF_GIRDERS,
@@ -62,6 +66,8 @@ def get_sample_bridge_data():
         KEY_TS_DECK_THICKNESS: "250",
         KEY_TS_DECK_OVERHANG: "1.2",
         "typical_section.overall_bridge_width": "11.5",
+        "typical_section.carriageway_width": "7.5",
+        "typical_section.lane_details.lane_table_count": "2",
         KEY_WC_MATERIAL: "Bituminous Concrete",
         KEY_WC_THICKNESS: "75",
         KEY_CB_LOAD: "0.85",
@@ -73,6 +79,7 @@ def get_sample_bridge_data():
         KEY_LL_IRC_70R_WHEELED: True,
         KEY_LL_FOOTPATH_PRESSURE_MODE: "As per IRC 6",
         KEY_LL_FOOTPATH_PRESSURE_VALUE: "4.0",
+        "geometry.footpath": "Both Sides",
         "wind_speed": "44",
         "seismic_zone": "IV",
         "shade_temp_max": "45",
@@ -87,6 +94,8 @@ def get_sample_bridge_data():
         "member_properties.girder_details.section_properties.area": "0.0684",
         "member_properties.girder_details.section_properties.mass": "536.94",
         "typical_section.crash_barrier.area": "250000",
+        "member_properties.end_diaphragm_details.end_diaphragm_type": "Cross Bracing",
+        "member_properties.end_diaphragm_details.section_properties.mass": "45.0",
     }
 
     outputs = {
@@ -159,12 +168,50 @@ def get_sample_bridge_data():
                 },
             },
         },
+        "design_results": {
+            "per_girder": {
+                "G1": {
+                    "checks": [
+                        {"check_id": 1, "demand": 4200.0, "capacity": 5100.0, "dcr": 0.824, "demand_unit": "kN-m", "capacity_unit": "kN-m"},
+                        {"check_id": 2, "demand": 950.0, "capacity": 1500.0, "dcr": 0.633, "demand_unit": "kN", "capacity_unit": "kN"},
+                        {"check_id": 5, "demand": 3800.0, "capacity": 5000.0, "dcr": 0.760, "demand_unit": "kN-m", "capacity_unit": "kN-m"},
+                        {"check_id": 11, "demand": 210.0, "capacity": 250.0, "dcr": 0.840, "demand_unit": "MPa", "capacity_unit": "MPa"},
+                    ],
+                    "per_lc": {
+                        "ULS 1": {
+                            "checks": [
+                                {"id": 1, "demand": 4200.0, "capacity": 5100.0, "dcr": 0.824},
+                                {"id": 2, "demand": 950.0, "capacity": 1500.0, "dcr": 0.633},
+                            ]
+                        },
+                        "SLS 1": {
+                            "checks": [
+                                {"id": 13, "demand": 24.5, "capacity": 37.5, "dcr": 0.653},
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "deck_design_results": {
+            "rebar_bottom_area": 1250,
+            "rebar_top_area": 1050,
+        },
+        "deck_report_values": {
+            "deck_design.moment.m_uls_sag": 145.0,
+            "deck_design.moment.mu_bot": 195.0,
+            "deck_design.moment.m_uls_hog": 120.0,
+            "deck_design.moment.mu_top": 180.0,
+            "deck_design.crack.wk_bot": 0.18,
+            "deck_design.crack.wk_top": 0.15,
+            "deck_design.crack.limit": 0.25,
+        }
     }
     return inputs, outputs
 
 
-def test_styles_engine():
-    """Verify centralized styling configuration."""
+def test_styles_engine_and_headers():
+    """Verify centralized styling configuration and longtable header joining."""
     assert PALETTE.PRIMARY == "#91B014"
     assert PALETTE.PASS == "#2E7D32"
     assert PALETTE.FAIL == "#C62828"
@@ -183,32 +230,42 @@ def test_styles_engine():
     assert "definecolor{osdagPass}" in colors_tex
     assert "definecolor{osdagFail}" in colors_tex
 
+    # Verify build_longtable_header joins columns with " & " (Issue 3 fix)
+    cols = [r"\textbf{Col 1}", r"\textbf{Col 2}", r"\textbf{Col 3}"]
+    hdr = build_longtable_header("Test Table", cols, num_cols=3)
+    assert r"\textbf{Col 1} & \textbf{Col 2} & \textbf{Col 3}" in hdr
+    assert "\\endfirsthead" in hdr
+    assert "\\endhead" in hdr
+    assert "\\endfoot" in hdr
+    assert "\\endlastfoot" in hdr
+    # Verify column headers are NOT on separate stacked rows
+    assert r"\textbf{Col 1} \\" not in hdr.split("&")[0]
+
 
 def test_plot_generation(tmp_path):
-    """Verify programmatic generation of UR and Material Quantity plots."""
+    """Verify programmatic generation of UR and Material Quantity plots (Issues 1 & 2)."""
     out_dir = str(tmp_path / "assets")
     os.makedirs(out_dir, exist_ok=True)
 
-    # 1. Utilization Ratio plot
+    # 1. Utilization Ratio plot with real values
     checks = [
-        {"element": "Girder Moment", "ur": 0.82},
-        {"element": "Girder Shear", "ur": 0.64},
-        {"element": "Girder LTB", "ur": 0.76},
-        {"element": "Deck Slab Mid-Span", "ur": 0.69},
-        {"element": "Cross Bracing", "ur": 0.77},
+        {"element": "Girder Moment", "ur": 0.82, "group": "Girders"},
+        {"element": "Girder Shear", "ur": 0.64, "group": "Girders"},
+        {"element": "Girder LTB", "ur": 0.76, "group": "Girders"},
+        {"element": "Deck Slab Mid-Span", "ur": 0.69, "group": "Deck Slab"},
+        {"element": "Cross Bracing", "ur": 0.77, "group": "Cross Bracing"},
+        {"element": "End Diaphragm", "ur": 0.55, "group": "End Diaphragms"},
     ]
     ur_path = os.path.join(out_dir, "utilization_ratio_summary.png")
     res_ur = generate_utilization_ratio_plot(checks, ur_path)
     assert os.path.exists(res_ur)
-    assert os.path.getsize(res_ur) > 1000  # Valid non-empty PNG
+    assert os.path.getsize(res_ur) > 1000
 
-    # 2. Material Quantity plots
+    # 2. Material Quantity plots with End Diaphragms (not shear studs)
     quantities = {
         "steel_girders_wt_total": "64.4",
-        "bracing_top_wt_total": "2.4",
-        "bracing_bot_wt_total": "2.4",
-        "bracing_diag_wt_total": "4.8",
-        "shear_studs_wt_total": "1.2",
+        "steel_bracing_wt_total": "9.6",
+        "end_diaphragm_wt_total": "3.2",
         "concrete_deck_vol_total": "86.25",
         "rebar_deck_wt_total": "10.35",
         "crash_barrier_vol_total": "15.0",
@@ -218,6 +275,112 @@ def test_plot_generation(tmp_path):
     assert os.path.getsize(steel_p) > 1000
     assert os.path.exists(conc_p)
     assert os.path.getsize(conc_p) > 1000
+
+
+def test_plot_empty_data_honest(tmp_path):
+    """Verify that empty check data does NOT inject fake/sample numbers like 0.84 (Issue 1)."""
+    out_dir = str(tmp_path / "assets_empty")
+    os.makedirs(out_dir, exist_ok=True)
+
+    ur_path = os.path.join(out_dir, "ur_empty.png")
+    # Must handle empty list honestly without fake values
+    generate_utilization_ratio_plot([], ur_path)
+    assert os.path.exists(ur_path)
+    assert os.path.getsize(ur_path) > 1000
+
+    # Material quantities with empty/missing data: should not fabricate 18.5, 45.0, etc.
+    empty_quantities = {}
+    steel_p, conc_p = generate_material_quantity_plots(empty_quantities, out_dir)
+    assert os.path.exists(steel_p)
+    assert os.path.exists(conc_p)
+
+
+def test_chap3_loads_and_fallbacks():
+    """Verify Chapter 3 load calculations, centrifugal 0.00 explanation, and footway (Issue 4)."""
+    inputs, _ = get_sample_bridge_data()
+    tex = ch3_loads(inputs)
+
+    # 1. Straight bridge centrifugal force must be 0.00 (Straight)
+    assert "0.00 (Straight)" in tex
+    # 2. Vehicle Class & Impact factor
+    assert "IRC Class A" in tex
+    assert "IRC Class 70R" in tex
+    # 3. Table widths and headers
+    assert "Vehicle Live Loads (LL)" in tex
+    assert "Footway and Pedestrian Live Loads" in tex
+
+
+def test_chap5_table_and_chart_parity():
+    """Verify that Chapter 5 Table 5.22 and the UR chart extract from the exact same data source (Issue 1)."""
+    inputs, outputs = get_sample_bridge_data()
+    meta = ReportMetadata(
+        project_name="Test Bridge",
+        project_location="Mumbai",
+        designer="Engineer",
+        client="Client",
+        company="Company"
+    )
+    options = ReportOptions(
+        sections=['design_checks'],
+        include_figures=True,
+        include_toc=True,
+        include_pdf=False,
+    )
+    request = ReportRequest(
+        metadata=meta,
+        options=options,
+        output_dir=".",
+        file_stem="test_parity",
+    )
+    payload = build_report_payload(request, inputs, outputs)
+    bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
+
+    t522_rows, checks_summary = extract_design_checks_summary(bridge)
+    assert len(t522_rows) == 18
+    assert len(checks_summary) == 18
+
+    # Verify that Girder Moment UR in Table 5.22 matches checks_summary
+    gm_check = next(c for c in checks_summary if c["element"] == "Girder Moment")
+    assert gm_check["ur"] is not None
+    assert round(gm_check["ur"], 2) == 0.82
+
+    # Verify that Table 5.22 text contains "0.82"
+    t522_text = "\n".join(t522_rows)
+    assert "0.82" in t522_text
+
+
+def test_report_options_include_pdf_false(tmp_path):
+    """Verify that include_pdf=False skips compiler execution and returns ReportResult(pdf_path=None) (Issue 5)."""
+    output_dir = str(tmp_path / "deliverables_nopdf")
+    os.makedirs(output_dir, exist_ok=True)
+
+    inputs, outputs = get_sample_bridge_data()
+    meta = ReportMetadata(
+        project_name="No-PDF Test Bridge",
+        project_location="Delhi",
+        designer="Engineer",
+        client="Client",
+        company="Company"
+    )
+    options = ReportOptions(
+        sections=['loads', 'design_checks', 'drawings'],
+        include_figures=True,
+        include_toc=True,
+        include_pdf=False,  # Explicitly disabled
+    )
+    request = ReportRequest(
+        metadata=meta,
+        options=options,
+        output_dir=output_dir,
+        file_stem="Report_NoPDF",
+    )
+
+    payload = build_report_payload(request, inputs, outputs)
+    result = generate_report(payload, request)
+
+    assert result.tex_path is not None
+    assert os.path.exists(result.tex_path)
+    assert result.pdf_path is None  # Must NOT attempt to produce PDF when include_pdf is False
 
 
 def test_full_report_tex_pipeline(tmp_path):
@@ -241,7 +404,7 @@ def test_full_report_tex_pipeline(tmp_path):
         sections=['loads', 'analysis', 'design_checks', 'drawings'],
         include_figures=True,
         include_toc=True,
-        include_pdf=True,
+        include_pdf=False,
     )
 
     request = ReportRequest(
@@ -277,15 +440,20 @@ def test_full_report_tex_pipeline(tmp_path):
     assert "IRC Class A" in tex
     assert "IRC Class 70R" in tex
     assert "Footway and Pedestrian Live Loads" in tex
+    assert "0.00 (Straight)" in tex
 
     # 4. Section 5.5 UR Visualization
     assert "Overall Design Check Summary" in tex
     assert "utilization_ratio_summary.png" in tex
 
-    # 5. Chapter 7 Material Quantity Visualizations
+    # 5. Chapter 7 Material Quantity Visualizations & End Diaphragms
     assert "Material Quantity Visualizations" in tex
     assert "material_steel_tonnage.png" in tex
     assert "material_concrete_rebar.png" in tex
+    assert "End Diaphragms" in tex
+
+    # 6. Centralized status color verification
+    assert r"\textcolor{osdagPass}{\textbf{PASS}}" in tex
 
     print("\n[SUCCESS] All LaTeX Report Generator enhancements verified!")
 
@@ -295,9 +463,17 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         from pathlib import Path
         p = Path(td)
-        test_styles_engine()
+        test_styles_engine_and_headers()
         print("[PASS] Styles Engine verified")
         test_plot_generation(p)
         print("[PASS] Plot Generation verified")
+        test_plot_empty_data_honest(p)
+        print("[PASS] Empty Data Honesty verified")
+        test_chap3_loads_and_fallbacks()
+        print("[PASS] Chapter 3 Loads verified")
+        test_chap5_table_and_chart_parity()
+        print("[PASS] Chapter 5 Parity verified")
+        test_report_options_include_pdf_false(p)
+        print("[PASS] include_pdf=False verified")
         test_full_report_tex_pipeline(p)
         print("[PASS] Full Report Pipeline verified")

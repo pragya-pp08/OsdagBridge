@@ -133,7 +133,7 @@ from .chap1 import ch1_project_info
 from .chap2 import ch2_input_parameters
 from .chap3 import ch3_loads
 from .chap4 import ch4_analysis
-from .chap5 import ch5_design_checks
+from .chap5 import ch5_design_checks, extract_design_checks_summary
 from .chap6 import ch6_drawings
 from .chap7 import ch7_quantities
 from .chap8 import ch8_design_log
@@ -553,8 +553,8 @@ class ReportDataBridge:
             if val is not None:
                 ur = float(val)
                 if ur <= 1.0:
-                    return r"\textcolor{black}{PASS}"
-                return r"\textcolor{red}{FAIL}"
+                    return r"\textcolor{osdagPass}{\textbf{PASS}}"
+                return r"\textcolor{osdagFail}{\textbf{FAIL}}"
         except (TypeError, ValueError):
             pass
         return ""
@@ -855,6 +855,10 @@ def generate_report(payload, request):
                 shutil.copy2(org_logo_src, os.path.join(tmp_assets, 'org_logo.png'))
                 org_logo_latex = 'assets/org_logo.png'
 
+            # ── Assemble LaTeX data bridge ──
+            bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
+            span_m = float(payload.inputs.get(KEY_SPAN, 0) or 0)
+
             # Compute and inject quantities for Chapter 7
             quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
             payload.inputs.update(quantities)
@@ -865,15 +869,13 @@ def generate_report(payload, request):
                 fig_paths['material_steel'] = 'assets/' + os.path.basename(steel_plot)
                 fig_paths['material_concrete_rebar'] = 'assets/' + os.path.basename(conc_plot)
 
+                # Connect actual design check utilization ratios (identical to Table 5.22)
+                _, checks_summary = extract_design_checks_summary(bridge)
                 ur_plot = os.path.join(tmp_assets, 'utilization_ratio_summary.png')
-                generate_utilization_ratio_plot([], ur_plot)
+                generate_utilization_ratio_plot(checks_summary, ur_plot)
                 fig_paths['ur_summary'] = 'assets/utilization_ratio_summary.png'
             except Exception as e:
                 logger.warning(f"Error generating dynamic report plots: {e}")
-
-            # ── Assemble LaTeX document (fig_paths now has tmp_dir paths) ──
-            bridge = ReportDataBridge(payload.output_dict, payload.inputs, payload)
-            span_m = float(payload.inputs.get(KEY_SPAN, 0) or 0)
 
             doc_parts = []
             doc_parts.append(preamble(payload.metadata.project_name, payload.metadata.job_number, payload.metadata.report_date, payload.metadata.subtitle or 'Rev 0'))
@@ -923,30 +925,35 @@ def generate_report(payload, request):
             with open(tmp_tex, 'w', encoding='utf-8') as f:
                 f.write(full_tex)
 
-            # Compile twice for TOC and references
-            for _ in range(2):
-                try:
-                    kwargs = {
-                        'cwd': tmp_dir,
-                        'stdout': subprocess.PIPE,
-                        'stderr': subprocess.PIPE,
-                        'check': False,
-                        'env': os.environ.copy()
-                    }
-                    if os.name == 'nt':
-                        kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-                    
-                    res = subprocess.run(
-                        [compiler, '-interaction=nonstopmode', request.file_stem + '.tex'],
-                        **kwargs
-                    )
-                except Exception as exc:
-                    logger.warning(f"pdflatex run failed: {exc}")
+            # Compile twice for TOC and references only if include_pdf is requested
+            if payload.options.include_pdf and compiler:
+                for _ in range(2):
+                    try:
+                        kwargs = {
+                            'cwd': tmp_dir,
+                            'stdout': subprocess.PIPE,
+                            'stderr': subprocess.PIPE,
+                            'check': False,
+                            'env': os.environ.copy()
+                        }
+                        if os.name == 'nt':
+                            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+                        
+                        res = subprocess.run(
+                            [compiler, '-interaction=nonstopmode', request.file_stem + '.tex'],
+                            **kwargs
+                        )
+                    except Exception as exc:
+                        logger.warning(f"pdflatex run failed: {exc}")
 
             if os.path.exists(tmp_tex):
                 shutil.copy2(tmp_tex, tex_path)
-            if os.path.exists(tmp_pdf):
+            if payload.options.include_pdf and os.path.exists(tmp_pdf):
                 shutil.copy2(tmp_pdf, pdf_path)
+
+        if not payload.options.include_pdf:
+            logger.info("Report TeX generated without PDF (include_pdf=False): %s", tex_path)
+            return ReportResult(pdf_path=None, tex_path=tex_path)
 
         if os.path.exists(pdf_path):
             logger.info("Report generated: %s", pdf_path)

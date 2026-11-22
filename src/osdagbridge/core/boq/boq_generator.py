@@ -84,6 +84,12 @@ def calculate_material_quantities(inputs: dict, outputs: dict) -> dict:
         "shear_studs_wt_single": "N.A.",
         "shear_studs_wt_total": "N.A.",
 
+        "end_diaphragm_vol_formula": r"\placeholder{Area $\times$ Length}",
+        "end_diaphragm_qty": "N.A.",
+        "end_diaphragm_vol_total": "N.A.",
+        "end_diaphragm_wt_single": "N.A.",
+        "end_diaphragm_wt_total": "N.A.",
+
         "crash_barrier_vol_formula": r"\placeholder{Area $\times$ Length}",
         "crash_barrier_qty": "N.A.",
         "crash_barrier_vol_total": "N.A.",
@@ -321,14 +327,61 @@ def calculate_material_quantities(inputs: dict, outputs: dict) -> dict:
             quantities["bracing_diag_vol_total"] = f"{diag_vol_total:.2f}"
             quantities["bracing_diag_wt_single"] = f"{diag_wt_single:.4f}"
             quantities["bracing_diag_wt_total"] = f"{diag_wt_total:.2f}"
+            
+            total_bracing_wt = (top_chord_wt_total if top_chord_enabled else 0.0) + (bot_chord_wt_total if bot_chord_enabled else 0.0) + diag_wt_total
+            quantities["steel_bracing_wt_total"] = f"{total_bracing_wt:.2f}"
         else:
             # Keep all bracing volumes, quantities, and weights as default placeholder "N.A."
-            for prefix in ("bracing_top", "bracing_bot", "bracing_diag"):
+            for prefix in ("bracing_top", "bracing_bot", "bracing_diag", "steel_bracing"):
                 quantities[f"{prefix}_vol_formula"] = "N.A."
                 quantities[f"{prefix}_qty"] = "N.A."
                 quantities[f"{prefix}_vol_total"] = "N.A."
                 quantities[f"{prefix}_wt_single"] = "N.A."
                 quantities[f"{prefix}_wt_total"] = "N.A."
+
+        # 5d. End Diaphragms (Cu.m) and Weight (MT)
+        ed_bays = (n_girders - 1) * 2
+        ed_mass = None
+        for _k, _v in inputs.items():
+            if "end_diaphragm" in str(_k) and "mass" in str(_k):
+                try:
+                    ed_mass = float(_v)
+                    break
+                except Exception:
+                    pass
+
+        if spacing > 0.0 and ed_bays > 0:
+            if ed_mass is not None and ed_mass > 0:
+                ed_vol_total = (ed_mass / 7850.0) * spacing * ed_bays
+                ed_wt_total = (ed_mass * spacing * ed_bays) / 1000.0
+                ed_wt_single = (ed_mass * spacing) / 1000.0
+                quantities["end_diaphragm_vol_formula"] = f"${spacing:.2f}\\text{{ m}} \\times \\text{{bay}}$"
+                quantities["end_diaphragm_qty"] = str(ed_bays)
+                quantities["end_diaphragm_vol_total"] = f"{ed_vol_total:.2f}"
+                quantities["end_diaphragm_wt_single"] = f"{ed_wt_single:.4f}"
+                quantities["end_diaphragm_wt_total"] = f"{ed_wt_total:.2f}"
+            elif bracing_area > 0.0:
+                ed_vol_single = bracing_area * bracing_len * 2
+                ed_vol_total = ed_bays * ed_vol_single
+                ed_wt_single = ed_vol_single * 7.85
+                ed_wt_total = ed_vol_total * 7.85
+                quantities["end_diaphragm_vol_formula"] = f"${bracing_area:.5f}\\text{{ m}}^2 \\times {bracing_len:.2f}\\text{{ m}}$"
+                quantities["end_diaphragm_qty"] = str(ed_bays)
+                quantities["end_diaphragm_vol_total"] = f"{ed_vol_total:.2f}"
+                quantities["end_diaphragm_wt_single"] = f"{ed_wt_single:.4f}"
+                quantities["end_diaphragm_wt_total"] = f"{ed_wt_total:.2f}"
+            else:
+                quantities["end_diaphragm_vol_formula"] = "N.A."
+                quantities["end_diaphragm_qty"] = str(ed_bays)
+                quantities["end_diaphragm_vol_total"] = "N.A."
+                quantities["end_diaphragm_wt_single"] = "N.A."
+                quantities["end_diaphragm_wt_total"] = "N.A."
+        else:
+            quantities["end_diaphragm_vol_formula"] = "N.A."
+            quantities["end_diaphragm_qty"] = "N.A."
+            quantities["end_diaphragm_vol_total"] = "N.A."
+            quantities["end_diaphragm_wt_single"] = "N.A."
+            quantities["end_diaphragm_wt_total"] = "N.A."
 
         # 6. Crash Barrier (Cu.m) and Weight (MT)
         KEY_CB_AREA = "typical_section.crash_barrier.area"
