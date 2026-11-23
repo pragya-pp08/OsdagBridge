@@ -1,0 +1,18 @@
+[
+  {
+    "geometry.span": "30.0",
+    "typical_section.no_of_girders": "4",
+    "typical_section.girder_spacing": "2.8"
+  },
+  {
+    "geometry.span": "20.0",
+    "typical_section.no_of_girders": "3",
+    "typical_section.girder_spacing": "3.2"
+  },
+  {
+    "geometry.span": "35.0",
+    "typical_section.no_of_girders": "5",
+    "typical_section.girder_spacing": "2.5",
+    "geometry.skew_angle": "10.0"
+  }
+]

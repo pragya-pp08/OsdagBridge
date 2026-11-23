@@ -1,0 +1,19 @@
+{
+  "geometry.span": "24.0",
+  "typical_section.no_of_girders": "3",
+  "typical_section.girder_spacing": "3.2",
+  "typical_section.deck_thickness": "260",
+  "typical_section.deck_overhang": "1.1",
+  "geometry.carriageway_width": "7.5",
+  "geometry.skew_angle": "0.0",
+  "material.girder.grade": "Custom High-Strength Steel",
+  "material.girder.fy": "350.0",
+  "material.girder.fu": "490.0",
+  "material.girder.e": "205.0",
+  "material.girder.density": "78.5",
+  "material.deck.grade": "Custom Concrete M45",
+  "material.deck.fck": "45.0",
+  "material.deck.fctm": "3.8",
+  "material.deck.ecm": "34.0",
+  "material.deck.density": "25.0"
+}

@@ -1,0 +1,14 @@
+{
+  "bad_span_result": [
+    45.0,
+    "Span must be between 20.0 m and 45.0 m (software limitation)."
+  ],
+  "bad_skew_result": [
+    15.0,
+    "Skew angle must be between -15.0\u00b0 and 15.0\u00b0."
+  ],
+  "bad_fy_result": [
+    100.0,
+    "Yield Strength, Fy must be between 100.0 and 1200.0 MPa."
+  ]
+}

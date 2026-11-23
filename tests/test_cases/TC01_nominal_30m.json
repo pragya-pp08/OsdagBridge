@@ -1,0 +1,19 @@
+{
+  "geometry.span": "30.0",
+  "typical_section.no_of_girders": "4",
+  "typical_section.girder_spacing": "2.8",
+  "typical_section.deck_thickness": "250",
+  "typical_section.deck_overhang": "1.2",
+  "geometry.carriageway_width": "7.5",
+  "geometry.skew_angle": "0.0",
+  "material.girder.grade": "E 250 (Fe 410 W)",
+  "material.girder.fy": "250.0",
+  "material.girder.fu": "410.0",
+  "material.girder.e": "200.0",
+  "material.girder.density": "78.5",
+  "material.deck.grade": "M40",
+  "material.deck.fck": "40.0",
+  "material.deck.fctm": "3.5",
+  "material.deck.ecm": "31.0",
+  "material.deck.density": "25.0"
+}

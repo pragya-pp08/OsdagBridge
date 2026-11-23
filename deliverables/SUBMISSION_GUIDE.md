@@ -14,13 +14,14 @@
 | :--- | :--- | :--- |
 | `Report_Before.pdf` | **READY** | Original un-refactored design report (350 KB). |
 | `Report_After.pdf` | **READY** | Enhanced design report with repeated headers, calibrated margins, and charts (840 KB). |
-| `Technical_Changes_Report.pdf` | **READY** | Official Technical Report (PDF) ready for upload to the FOSSEE submission form (368 KB). |
-| `Supporting_Files.zip` | **READY** | Complete compressed project archive (7.1 MB) ready for upload to the FOSSEE submission form. |
+| `Technical_Changes_Report.pdf` | **READY** | Official Technical Report (PDF) for Task 1 (368 KB). |
+| `Software_Testing_and_Bug_Report.pdf` | **READY** | Official Software Testing & Issue Report (PDF) for Task 4 (368 KB). |
+| `Supporting_Files.zip` | **READY** | Complete compressed project archive (7.5 MB) ready for upload to the FOSSEE submission form. |
 | `Report_Before.tex` | **READY** | Genuine baseline report LaTeX source generated from original codebase using the bridge model (80 KB). |
 | `Report_After.tex` | **READY** | Genuine enhanced report LaTeX source with repeated headers, unified styles, and dynamic charts (117 KB). |
 | `Overleaf_Report_Compilation.zip` | **READY** | Standalone bundle for backup compilation on Overleaf (502 KB). |
 | `TECHNICAL_CHANGES.md` | **READY** | Full markdown documentation of all architectural refactorings and engineering fixes. |
-| `SOFTWARE_TESTING_AND_BUG_REPORTS.md` | **READY** | Task 2 testing documentation and 7 detailed, reproducible bug reports. |
+| `SOFTWARE_TESTING_AND_BUG_REPORTS.md` | **READY** | Task 4 testing documentation and 7 detailed, reproducible bug reports. |
 | `assets/` | **READY** | High-resolution 300 DPI plot assets (`utilization_ratio_summary.png`, `material_steel_tonnage.png`, `material_concrete_rebar.png`, `osdag_logo.png`). |
 
 ---

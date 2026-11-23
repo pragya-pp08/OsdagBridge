@@ -44,8 +44,14 @@ def _register_conda_dll_directories():
 _register_conda_dll_directories()
 
 import numpy as np  # re-exported: tests and users access ospgrillage.np
-import openseespy.opensees as ops  # re-exported: tests and users access ospgrillage.ops
-import opsvis as opsv  # used internally by postprocessing (section_force_distribution_3d)
+try:
+    import openseespy.opensees as ops  # re-exported: tests and users access ospgrillage.ops
+except ImportError:
+    ops = None
+try:
+    import opsvis as opsv  # used internally by postprocessing (section_force_distribution_3d)
+except ImportError:
+    opsv = None
 import matplotlib.pyplot as plt  # re-exported: users access ospgrillage.plt
 from ospgrillage.utils import *
 from ospgrillage.mesh import *

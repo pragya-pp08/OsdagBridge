@@ -1,0 +1,11 @@
+{
+  "geometry.span": "40.0",
+  "geometry.skew_angle": "15.0",
+  "typical_section.no_of_girders": "6",
+  "typical_section.girder_spacing": "2.4",
+  "typical_section.deck_thickness": "280",
+  "typical_section.deck_overhang": "1.4",
+  "geometry.carriageway_width": "14.0",
+  "geometry.include_median": "Yes",
+  "typical_section.overall_bridge_width": "18.5"
+}
